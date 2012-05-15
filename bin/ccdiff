@@ -1,0 +1,191 @@
+#! /usr/bin/perl
+eval 'exec /usr/bin/perl -S $0 ${1+"$@"}'
+  if 0;
+use strict;
+use warnings;
+use utf8;
+use autodie;
+our $VERSION = '0.1';
+
+use Getopt::Long qw(GetOptions);
+use Term::ANSIColor qw(color);
+
+use Algorithm::Diff qw(sdiff);
+
+GetOptions( my $opt = { align => 0 }, 'align!' );
+
+if ( $opt->{align} ) {
+    require Unicode::EastAsianWidth;
+    Unicode::EastAsianWidth->import(qw(InFullwidth));
+}
+
+sub colorize {
+    my ( $source_lhs, $source_rhs ) = @_;
+    my ( $lhs, $rhs ) = ( "", "" );
+    my $prev_indicator = 'u';
+    foreach my $diff ( sdiff( map { [ split //msx, $_ ] } ( $source_lhs, $source_rhs ) ) ) {
+        if ( $diff->[0] ne $prev_indicator ) {
+            $lhs .= color 'reset';
+            $rhs .= color 'reset';
+            if ( $diff->[0] eq 'c' ) {
+                $lhs .= color 'red';
+                $rhs .= color 'green';
+            }
+            elsif ( $diff->[0] eq '+' ) {
+                $rhs .= color 'on_green';
+            }
+            elsif ( $diff->[0] eq '-' ) {
+                $lhs .= color 'on_red';
+            }
+        }
+        if ( $opt->{align} ) {
+            if ( $diff->[0] eq '+' ) {    # XXX: 0幅は？
+                $lhs .= sprintf '%' . ( $diff->[2] =~ /\p{InFullwidth}/msx ? 2 : 1 ) . 's', ' ';
+            }
+            elsif ( $diff->[0] eq '-' ) {
+                $rhs .= sprintf '%' . ( $diff->[1] =~ /\p{InFullwidth}/msx ? 2 : 1 ) . 's', ' ';
+            }
+        }
+        $lhs .= $diff->[1];
+        $rhs .= $diff->[2];
+        $prev_indicator = $diff->[0];
+    }
+    $lhs .= color 'reset';
+    $rhs .= color 'reset';
+    return ( $lhs, $rhs );
+}
+
+if ( 2 <= @ARGV ) {    # TODO: deal with existing STDIN
+    require IO::Pipe;
+    open STDIN, q{<&=}, IO::Pipe->new->reader( 'diff', '-u', @ARGV );
+    undef @ARGV;
+}
+
+binmode STDIN  => ':utf8';
+binmode STDOUT => ':utf8';
+my ( $source_lhs, $source_rhs ) = ( '', '' );
+while (<>) {
+    if (/^[-]/msx) {
+        $source_lhs .= $_;
+        if ($source_rhs) {
+            print colorize( $source_lhs, $source_rhs );
+            ( $source_lhs, $source_rhs ) = ( '', '' );
+        }
+    }
+    elsif (/^[+]/msx) {
+        $source_rhs .= $_;
+        if ($source_lhs) {
+            print colorize( $source_lhs, $source_rhs );
+            ( $source_lhs, $source_rhs ) = ( '', '' );
+        }
+    }
+    else {
+        if ( $source_lhs || $source_rhs ) {
+            print colorize( $source_lhs, $source_rhs );
+            ( $source_lhs, $source_rhs ) = ( '', '' );
+        }
+        print $_;
+    }
+}
+print colorize( $source_lhs, $source_rhs );
+
+__END__
+
+=head1 NAME
+
+ccdiff - a tool to colorize by the character diff output
+
+=head1 USAGE
+
+  $ ccdiff foo.old foo.new
+
+  $ diff -u foo.old foo.new | ccdiff
+  $ diff -u foo.old foo.new 1>foo.patch
+  $ cat foo.patch | ccdiff
+  $ ccdiff foo.patch
+
+  $ svn diff | ccdiff
+  $ svn diff 1>bar.diff
+  $ cat bar.diff | ccdiff
+  $ ccdiff bar.diff
+
+=head1 DESCRIPTION
+
+a tool to colorize by the character diff output
+
+http://d.hatena.ne.jp/holidays-l/20101105/p1
+different from http://colordiff.sourceforge.net/
+similar to String::ShowDiff
+
+=head1 REQUIRED ARGUMENTS
+
+None.
+
+=head1 OPTIONS
+
+=over
+
+=item --align, --no-align
+
+Turn on/off alignment when indicator is added or removed.
+--align require L<Unicode::EastAsianWidth|Unicode::EastAsianWidth>.
+The default is --no-align.
+
+=back
+
+=head1 DIAGNOSTICS
+
+None.
+
+=head1 EXIT STATUS
+
+0
+
+=head1 CONFIGURATION
+
+ccdiff requires no configuration files.
+
+=head1 DEPENDENCIES
+
+=over
+
+=item L<Algorithm::Diff|Algorithm::Diff>
+
+=item L<Unicode::EastAsianWidth|Unicode::EastAsianWidth>(optional)
+
+It is only used in the case of align mode.
+
+=back
+
+=head1 INCOMPATIBILITIES
+
+None reported.
+
+=head1 BUGS AND LIMITATIONS
+
+No bugs have been reported.
+
+=over
+
+=item TODO: add other context support
+
+=item TODO: add ~/.colordiffrc(L<colordiff|http://colordiff.sourceforge.net/>) support
+
+=item TODO: add multibyte character support
+
+current support is only UTF-8.
+
+=item TODO: implement web service
+
+=back
+
+=head1 AUTHOR
+
+robario <webmaster@robario.com>
+
+=head1 LICENSE AND COPYRIGHT
+
+This module is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself. See L<perlartistic|perlartistic>.
+
+=cut
